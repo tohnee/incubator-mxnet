@@ -23,6 +23,7 @@ import org.apache.mxnetexamples.Util
 import org.scalatest.{BeforeAndAfterAll, FunSuite, Ignore}
 import org.slf4j.LoggerFactory
 
+import scala.language.postfixOps
 import scala.sys.process.Process
 
 class ExampleRNNSuite extends FunSuite with BeforeAndAfterAll {
@@ -49,14 +50,19 @@ class ExampleRNNSuite extends FunSuite with BeforeAndAfterAll {
       System.getenv("SCALA_TEST_ON_GPU").toInt == 1) {
       ctx = Context.gpu()
     }
-    LstmBucketing.runTraining(tempDirPath + "/RNN/sherlockholmes.train.txt",
-      tempDirPath + "/RNN/sherlockholmes.valid.txt", Array(ctx), 1)
+    if (!System.getenv().containsKey("CI")) {
+      LstmBucketing.runTraining(tempDirPath + "/RNN/sherlockholmes.train.txt",
+                                tempDirPath + "/RNN/sherlockholmes.valid.txt", Array(ctx), 1)
+    } else {
+      logger.info("Skipping test on CI...")
+    }
   }
 
   test("Example CI: Test TrainCharRNN") {
     val tempDirPath = System.getProperty("java.io.tmpdir")
     if (System.getenv().containsKey("SCALA_TEST_ON_GPU") &&
-      System.getenv("SCALA_TEST_ON_GPU").toInt == 1) {
+          System.getenv("SCALA_TEST_ON_GPU").toInt == 1 &&
+          !System.getenv().containsKey("CI")) {
       val ctx = Context.gpu()
       TrainCharRnn.runTrainCharRnn(tempDirPath + "/RNN/obama.txt",
         tempDirPath, ctx, 1)

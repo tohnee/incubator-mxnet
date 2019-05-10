@@ -23,7 +23,6 @@ import gzip
 import struct
 import traceback
 import numbers
-import subprocess
 import sys
 import os
 import errno
@@ -207,11 +206,12 @@ def _get_powerlaw_dataset_csr(num_rows, num_cols, density=0.1, dtype=None):
                 return mx.nd.array(output_arr).tostype("csr")
         col_max = col_max * 2
 
-    if unused_nnz > 0:
+    if unused_nnz > 0: # pylint: disable=no-else-raise
         raise ValueError("not supported for this density: %s"
                          " for this shape (%s,%s)" % (density, num_rows, num_cols))
     else:
         return mx.nd.array(output_arr).tostype("csr")
+
 
 def assign_each(the_input, function):
     """Return ndarray composed of passing each array value through some function"""
@@ -620,8 +620,11 @@ def _parse_location(sym, location, ctx, dtype=default_dtype()):
         *In either case, value of all the arguments must be provided.*
     ctx : Context
         Device context.
-    dtype: np.float16 or np.float32 or np.float64
-        Datatype for mx.nd.array.
+    dtype: "asnumpy" or np.float16 or np.float32 or np.float64
+        If dtype is "asnumpy" then the mx.nd.array created will have the same
+        type as th numpy array from which it is copied.
+        Otherwise, dtype is the explicit datatype for all mx.nd.array objects
+        created in this function.
 
     Returns
     -------
@@ -643,7 +646,7 @@ def _parse_location(sym, location, ctx, dtype=default_dtype()):
     ValueError: Symbol arguments and keys of the given location do not match.
     """
     assert isinstance(location, (dict, list, tuple))
-    assert dtype in (np.float16, np.float32, np.float64)
+    assert dtype == "asnumpy" or dtype in (np.float16, np.float32, np.float64)
     if isinstance(location, dict):
         if set(location.keys()) != set(sym.list_arguments()):
             raise ValueError("Symbol arguments and keys of the given location do not match."
@@ -651,8 +654,8 @@ def _parse_location(sym, location, ctx, dtype=default_dtype()):
                              % (str(set(sym.list_arguments())), str(set(location.keys()))))
     else:
         location = {k: v for k, v in zip(sym.list_arguments(), location)}
-    location = {k: mx.nd.array(v, ctx=ctx, dtype=dtype) if isinstance(v, np.ndarray) \
-               else v for k, v in location.items()}
+    location = {k: mx.nd.array(v, ctx=ctx, dtype=v.dtype if dtype == "asnumpy" else dtype) \
+               if isinstance(v, np.ndarray) else v for k, v in location.items()}
     return location
 
 
@@ -677,8 +680,11 @@ def _parse_aux_states(sym, aux_states, ctx, dtype=default_dtype()):
         *In either case, all aux states of `sym` must be provided.*
     ctx : Context
         Device context.
-    dtype: np.float16 or np.float32 or np.float64
-        Datatype for mx.nd.array.
+    dtype: "asnumpy" or np.float16 or np.float32 or np.float64
+        If dtype is "asnumpy" then the mx.nd.array created will have the same
+        type as th numpy array from which it is copied.
+        Otherwise, dtype is the explicit datatype for all mx.nd.array objects
+        created in this function.
 
     Returns
     -------
@@ -702,7 +708,7 @@ def _parse_aux_states(sym, aux_states, ctx, dtype=default_dtype()):
     >>> _parse_aux_states(fc2, {'batchnorm0_moving_var': mean_states}, None)
     ValueError: Symbol aux_states names and given aux_states do not match.
     """
-    assert dtype in (np.float16, np.float32, np.float64)
+    assert dtype == "asnumpy" or dtype in (np.float16, np.float32, np.float64)
     if aux_states is not None:
         if isinstance(aux_states, dict):
             if set(aux_states.keys()) != set(sym.list_auxiliary_states()):
@@ -713,7 +719,8 @@ def _parse_aux_states(sym, aux_states, ctx, dtype=default_dtype()):
         elif isinstance(aux_states, (list, tuple)):
             aux_names = sym.list_auxiliary_states()
             aux_states = {k:v for k, v in zip(aux_names, aux_states)}
-        aux_states = {k: mx.nd.array(v, ctx=ctx, dtype=dtype) for k, v in aux_states.items()}
+        aux_states = {k: mx.nd.array(v, ctx=ctx, dtype=v.dtype if dtype == "asnumpy" else dtype) \
+                      for k, v in aux_states.items()}
     return aux_states
 
 
@@ -962,8 +969,11 @@ def check_symbolic_forward(sym, location, expected, rtol=1E-4, atol=None,
             Contains the mapping between names of auxiliary states and their values.
     ctx : Context, optional
         running context
-    dtype: np.float16 or np.float32 or np.float64
-        Datatype for mx.nd.array.
+    dtype: "asnumpy" or np.float16 or np.float32 or np.float64
+        If dtype is "asnumpy" then the mx.nd.array created will have the same
+        type as th numpy array from which it is copied.
+        Otherwise, dtype is the explicit datatype for all mx.nd.array objects
+        created in this function.
 
     equal_nan: Boolean
         if True, `nan` is a valid value for checking equivalency (ie `nan` == `nan`)
@@ -979,7 +989,7 @@ def check_symbolic_forward(sym, location, expected, rtol=1E-4, atol=None,
     >>> ret_expected = np.array([[19, 22], [43, 50]])
     >>> check_symbolic_forward(sym_dot, [mat1, mat2], [ret_expected])
     """
-    assert dtype in (np.float16, np.float32, np.float64)
+    assert dtype == "asnumpy" or dtype in (np.float16, np.float32, np.float64)
     if ctx is None:
         ctx = default_context()
 
@@ -988,7 +998,8 @@ def check_symbolic_forward(sym, location, expected, rtol=1E-4, atol=None,
                                    dtype=dtype)
     if isinstance(expected, dict):
         expected = [expected[k] for k in sym.list_outputs()]
-    args_grad_data = {k:mx.nd.empty(v.shape, ctx=ctx, dtype=dtype) for k, v in location.items()}
+    args_grad_data = {k:mx.nd.empty(v.shape, ctx=ctx, dtype=v.dtype if dtype == "asnumpy" else dtype) \
+                      for k, v in location.items()}
 
     executor = sym.bind(ctx=ctx, args=location, args_grad=args_grad_data, aux_states=aux_states)
     for g in executor.grad_arrays:
@@ -1337,7 +1348,7 @@ def check_consistency(sym, ctx_list, scale=1.0, grad_req='write',
             except AssertionError as e:
                 print('Predict Err: ctx %d vs ctx %d at %s'%(i, max_idx, name))
                 traceback.print_exc()
-                if raise_on_err:
+                if raise_on_err: # pylint: disable=no-else-raise
                     raise e
                 else:
                     print(str(e))
@@ -1364,7 +1375,7 @@ def check_consistency(sym, ctx_list, scale=1.0, grad_req='write',
                 except AssertionError as e:
                     print('Train Err: ctx %d vs ctx %d at %s'%(i, max_idx, name))
                     traceback.print_exc()
-                    if raise_on_err:
+                    if raise_on_err: # pylint: disable=no-else-raise
                         raise e
                     else:
                         print(str(e))
@@ -1380,14 +1391,7 @@ def list_gpus():
         If there are n GPUs, then return a list [0,1,...,n-1]. Otherwise returns
         [].
     """
-    re = ''
-    nvidia_smi = ['nvidia-smi', '/usr/bin/nvidia-smi', '/usr/local/nvidia/bin/nvidia-smi']
-    for cmd in nvidia_smi:
-        try:
-            re = subprocess.check_output([cmd, "-L"], universal_newlines=True)
-        except (subprocess.CalledProcessError, OSError):
-            pass
-    return range(len([i for i in re.split('\n') if 'GPU' in i]))
+    return range(mx.util.get_gpu_count())
 
 def download(url, fname=None, dirname=None, overwrite=False, retries=5):
     """Download an given URL
@@ -1451,7 +1455,7 @@ def download(url, fname=None, dirname=None, overwrite=False, retries=5):
                 break
         except Exception as e:
             retries -= 1
-            if retries <= 0:
+            if retries <= 0: # pylint: disable=no-else-raise
                 raise e
             else:
                 print("download failed, retrying, {} attempt{} left"
@@ -1532,7 +1536,7 @@ def get_mnist_iterator(batch_size, input_shape, num_parts=1, part_index=0):
     """
 
     get_mnist_ubyte()
-    flat = False if len(input_shape) == 3 else True
+    flat = False if len(input_shape) == 3 else True # pylint: disable=simplifiable-if-expression
 
     train_dataiter = mx.io.MNISTIter(
         image="data/train-images-idx3-ubyte",
@@ -1922,7 +1926,7 @@ def chi_square_check(generator, buckets, probs, nsamples=1000000):
     _, p = ss.chisquare(f_obs=obs_freq, f_exp=expected_freq)
     return p, obs_freq, expected_freq
 
-def verify_generator(generator, buckets, probs, nsamples=1000000, nrepeat=5, success_rate=0.25, alpha=0.05):
+def verify_generator(generator, buckets, probs, nsamples=1000000, nrepeat=5, success_rate=0.2, alpha=0.05):
     """Verify whether the generator is correct using chi-square testing.
 
     The test is repeated for "nrepeat" times and we check if the success rate is
@@ -1986,7 +1990,7 @@ def compare_optimizer(opt1, opt2, shape, dtype, w_stype='default', g_stype='defa
     if w_stype == 'default':
         w2 = mx.random.uniform(shape=shape, ctx=default_context(), dtype=dtype)
         w1 = w2.copyto(default_context())
-    elif w_stype == 'row_sparse' or w_stype == 'csr':
+    elif w_stype in ('row_sparse', 'csr'):
         w2 = rand_ndarray(shape, w_stype, density=1, dtype=dtype)
         w1 = w2.copyto(default_context()).tostype('default')
     else:
@@ -1994,7 +1998,7 @@ def compare_optimizer(opt1, opt2, shape, dtype, w_stype='default', g_stype='defa
     if g_stype == 'default':
         g2 = mx.random.uniform(shape=shape, ctx=default_context(), dtype=dtype)
         g1 = g2.copyto(default_context())
-    elif g_stype == 'row_sparse' or g_stype == 'csr':
+    elif g_stype in ('row_sparse', 'csr'):
         g2 = rand_ndarray(shape, g_stype, dtype=dtype)
         g1 = g2.copyto(default_context()).tostype('default')
     else:

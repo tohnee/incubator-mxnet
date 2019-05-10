@@ -26,11 +26,11 @@ import org.apache.mxnetexamples.Util
 import org.scalatest.{BeforeAndAfterAll, FunSuite}
 import org.slf4j.LoggerFactory
 
+import scala.language.postfixOps
 import scala.sys.process.Process
 
 /**
-  * Integration test for imageClassifier example.
-  * This will run as a part of "make scalatest"
+  * Integration test for CNN example.
   */
 class CNNClassifierExampleSuite extends FunSuite with BeforeAndAfterAll {
   private val logger = LoggerFactory.getLogger(classOf[CNNClassifierExampleSuite])
